@@ -40,6 +40,9 @@ const (
 	popularityBindingKey = "video.popularity.*"
 )
 
+// connectWithRetry 以指数退避方式重试执行 fn，最多 maxRetries 次；
+// 退避间隔从 1s 起翻倍、上限 30s，全部失败则 log.Fatalf 终止进程。
+// 用于启动阶段等待 MySQL / RabbitMQ 这类可能还在初始化的依赖。
 func connectWithRetry(name string, maxRetries int, fn func() error) {
 	for i := 0; i < maxRetries; i++ {
 		if err := fn(); err == nil {
@@ -87,6 +90,9 @@ func runWorkerWithRetry(ctx context.Context, name string, conn *amqp.Connection,
 	}
 }
 
+// main 是 Worker 进程入口：加载配置后依次连好 MySQL、Redis、RabbitMQ，
+// 用一个临时 Channel 声明四组队列拓扑，再为每类 Worker 起独立 goroutine 消费，
+// 收到 SIGINT/SIGTERM 后留 2 秒让在途消息处理完再退出。
 func main() {
 	// 加载 .env（本地开发）
 	if err := godotenv.Load(); err != nil {
@@ -208,6 +214,8 @@ func main() {
 	log.Printf("Worker stopped")
 }
 
+// declareSocialTopology 声明社交事件拓扑：持久化 topic exchange「social.events」、
+// 同名持久化队列，按 social.* 绑定，并把 DLXExchange 设为死信交换机。
 func declareSocialTopology(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		socialExchange,
@@ -245,6 +253,9 @@ func declareSocialTopology(ch *amqp.Channel) error {
 	return nil
 }
 
+// declarePopularityTopology 声明热度事件拓扑：持久化 topic exchange「video.popularity.events」、
+// 同名持久化队列，按 video.popularity.* 绑定，并挂上 DLX。
+// 仅在 Redis 可用时调用——热度计算依赖 Redis，没有就不消费。
 func declarePopularityTopology(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		popularityExchange,
@@ -279,6 +290,8 @@ func declarePopularityTopology(ch *amqp.Channel) error {
 	)
 }
 
+// declareLikeTopology 声明点赞事件拓扑：持久化 topic exchange「like.events」、
+// 同名持久化队列，按 like.* 绑定，并挂上 DLX。
 func declareLikeTopology(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		likeExchange,
@@ -313,6 +326,8 @@ func declareLikeTopology(ch *amqp.Channel) error {
 	)
 }
 
+// declareCommentTopology 声明评论事件拓扑：持久化 topic exchange「comment.events」、
+// 同名持久化队列，按 comment.* 绑定，并挂上 DLX。
 func declareCommentTopology(ch *amqp.Channel) error {
 	if err := ch.ExchangeDeclare(
 		commentExchange,

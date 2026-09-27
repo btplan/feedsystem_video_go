@@ -39,6 +39,7 @@ type UpdateLikesCountRequest struct {
 	LikesCount int64 `json:"likes_count"`
 }
 
+// OutbotMsg：不是rabbitmq的消息，存在mySQL 待办记录
 type OutboxMsg struct {
 	ID         uint      `gorm:"primaryKey"`
 	VideoID    uint      `gorm:"index"`
